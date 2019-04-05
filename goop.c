@@ -4,9 +4,9 @@
 #include <stdint.h>
 #include <limits.h>
 
-#define ANSIC_LANG_COMPILER
+// #define ANSIC_LANG_COMPILER
 // #define CPP_LANG_COMPILER
-// #define CSHARP_LANG_COMPILER
+#define CSHARP_LANG_COMPILER
 // #define JAVA_LANG_COMPILER
 // #define PYTHON_LANG_COMPILER
 
@@ -89,6 +89,7 @@ typedef enum TokenMaster
 	KEYWORD_CALLOC,
 	KEYWORD_REALLOC,
 	KEYWORD_FREE,
+	KEYWORD_NEW,
 	KEYWORD_SIZEOF,
 	KEYWORD_CONTAINER,
 	KEYWORD_PREPROCESSOR,
@@ -117,6 +118,8 @@ typedef enum TokenMaster
 	KEYWORD_FOPEN,
 	KEYWORD_FCLOSE,
 	KEYWORD_FSEEK,
+	KEYWORD_CONSOLE,
+	KEYWORD_WRITELINE,
 	KEYWORD_END,
 	ACCESSSPECIFIER_START,
 	ACCESSSPECIFIER_PUBLIC,
@@ -240,6 +243,7 @@ typedef enum TokenMaster
 	PREPROCESSOR_ELIF,
 	PREPROCESSOR_ERROR,
 	PREPROCESSOR_DEFINED,
+	PREPROCESSOR_USING,
 	PREPROCESSOR_END,
 	TOKENMASTER_NA,
 	TOKENMASTER_END
@@ -417,6 +421,10 @@ char* GetTokenMasterType(TOKEN_MASTER token)
 			return("FREE\0");
 			break;
 		}
+		case KEYWORD_NEW:{
+			return("NEW\0");
+			break;
+		}
 		case KEYWORD_SIZEOF:{
 			return("SIZEOF\0");
 			break;
@@ -447,6 +455,14 @@ char* GetTokenMasterType(TOKEN_MASTER token)
 		}
 		case KEYWORD_FSCANF:{
 			return("FSCANF\0");
+			break;
+		}
+		case KEYWORD_CONSOLE:{
+			return("CONSOLE\0");
+			break;
+		}
+		case KEYWORD_WRITELINE:{
+			return("WRITELINE\0");
 			break;
 		}
 		case KEYWORD_PRINTF:{
@@ -905,6 +921,10 @@ char* GetTokenMasterType(TOKEN_MASTER token)
 			return("PREPROCDEFINE\0");
 			break;
 		}
+		case PREPROCESSOR_USING:{
+			return("PREPROCUSING\0");
+			break;
+		}
 		case PREPROCESSOR_INCLUDE:{
 			return("PREPROCINCLUDE\0");
 			break;
@@ -924,6 +944,8 @@ char* GetTokenMasterType(TOKEN_MASTER token)
 	}
 	return(NULL);
 }
+
+char __filename__[101] = {'\0'};
 
 typedef struct SymbolTableEntry
 {
@@ -972,7 +994,7 @@ SYMBOL_LIST* GetSymbolListNode(SYMBOL* t)
 typedef struct Trie
 {
 	struct Trie* n[256];
-	uint8_t c[256];
+	uint16_t c[256];
 }TRIE;
 
 typedef struct StackItem
@@ -1057,7 +1079,7 @@ typedef struct Token
 {
 	char a[51];
 	int line, col;
-	uint8_t c;
+	uint16_t c;
 }TOKEN;
 
 typedef struct TokenList
@@ -1068,6 +1090,8 @@ typedef struct TokenList
 	CONSTRUCT_TYPE type;
 	TOKEN* data;
 }TOKENLIST;
+
+TOKENLIST *head = NULL;
 
 TRIE* GetTrieNode()
 {
@@ -1344,7 +1368,7 @@ void InsertInTokenSubList(TOKENLIST* head, TOKEN* t)
 	head->sublist = InsertInTokenList(head->sublist, t);
 }
 
-TOKEN* FormToken(char a[], int line, int col, uint8_t tokentype)
+TOKEN* FormToken(char a[], int line, int col, uint16_t tokentype)
 {
 	TOKEN* t = (TOKEN*)malloc(sizeof(TOKEN));
 	CpyStr(t->a, a);
@@ -1407,7 +1431,7 @@ void InsertInSymbolTable(SYMBOL_TABLE* tbl, SYMBOL* sym)
 	tbl->list[hval] = InsertInSymbolList(tbl->list[hval], sym);
 }
 
-void InsertInTrie(TRIE* root, char a[], uint8_t tokentype)
+void InsertInTrie(TRIE* root, char a[], uint16_t tokentype)
 {
 	int i = 0;
 	TRIE* prev = root;
@@ -1517,6 +1541,7 @@ TRIE* MakeTrie()
 						 "malloc\0", {KEYWORD_MALLOC}, \
 						 "realloc\0", {KEYWORD_REALLOC}, \
 						 "free\0", {KEYWORD_FREE}, \
+						 "new\0", {KEYWORD_NEW}, \
 						 "sizeof\0", {KEYWORD_SIZEOF}, \
 						 "typedef\0", {KEYWORD_TYPEDEF}, \
 						 "puts\0", {KEYWORD_PUTS}, \
@@ -1528,6 +1553,95 @@ TRIE* MakeTrie()
 						 "fclose\0", {KEYWORD_FCLOSE}, \
 						 "END\0"};
 	#endif /* ANSIC_LANG_COMPILER */
+	#ifdef CSHARP_LANG_COMPILER
+	uint8_t dic[][51] = {";\0", {TOKEN_SEMICOLON}, \
+						 ":\0", {SPL_COLON}, \
+						 "?\0", {SPL_QUESTIONMARK}, \
+						 "->\0", {SPL_STRUCTREFACCESS}, \
+						 "(\0", {SPL_LEFTPARANTHESIS}, \
+						 ")\0", {SPL_RIGHTPARANTHESIS}, \
+						 ",\0", {SPL_COMMA}, \
+						 "{\0", {SPL_LEFTBRACE}, \
+						 "}\0", {SPL_RIGHTBRACE}, \
+						 "[\0", {SPL_LEFTSQUARE}, \
+						 "]\0", {SPL_RIGHTSQUARE}, \
+						 "=\0", {BINMATOP_ASSIGNMENT}, \
+						 ".\0", {SPL_PERIOD}, \
+						 "...\0", {SPL_RANGEOPERATOR}, \
+						 "==\0", {BINRELOP_EQUALITY}, \
+						 "!=\0", {BINRELOP_NOTEQUALITY}, \
+						 ">\0", {BINRELOP_GREATER}, \
+						 "<\0", {BINRELOP_LESSER}, \
+						 ">=\0", {BINRELOP_GREATEROREQUAL}, \
+						 "<=\0", {BINRELOP_LESSEROREQUAL}, \
+						 "+=\0", {BINMATOP_ADDANDASSIGN}, \
+						 "-=\0", {BINMATOP_SUBTRACTANDASSIGN}, \
+						 "*=\0", {BINMATOP_MULTIPLYANDASSIGN}, \
+						 "/=\0", {BINMATOP_DIVIDEANDASSIGN}, \
+						 "%=\0", {BINMATOP_MODULUSANDASSIGN}, \
+						 "|=\0", {BINMATOP_ORANDASSIGN}, \
+						 "&=\0", {BINMATOP_ANDANDASSIGN}, \
+						 "^=\0", {BINMATOP_XORANDASSIGN}, \
+						 "++\0", {UNMATOP_INCREAMENT}, \
+						 "--\0", {UNMATOP_DECREAMENT}, \
+						 "+\0", {BINMATOP_ADDITION}, \
+						 "-\0", {BINMATOP_SUBTRACTION}, \
+						 "*\0", {BINMATOP_MULTIPLICATION}, \
+						 "/\0", {BINMATOP_DIVISION}, \
+						 "%\0", {BINMATOP_MODULUS}, \
+						 "^\0", {BINMATOP_XOR}, \
+						 "|\0", {BINMATOP_ARITHMATICOR}, \
+						 "&\0", {BINMATOP_ARITHMATICAND}, \
+						 "||\0", {BINRELOP_LOGICALOR}, \
+						 "&&\0", {BINRELOP_LOGICALAND}, \
+						 "~\0", {UNMATOP_ARITHMATICNOT}, \
+						 "!\0", {UNRELOP_LOGICALNOT}, \
+						 "<<\0", {BINMATOP_LEFTSHIFT}, \
+						 ">>\0", {BINMATOP_RIGHTSHIFT}, \
+						 "const\0", {MODIFIER_CONST}, \
+						 "volatile\0", {MODIFIER_VOLATILE}, \
+						 "static\0", {MODIFIER_STATIC}, \
+						 "extern\0", {MODIFIER_EXTERN}, \
+						 "int\0", {DATATYPE_INT}, \
+						 "void\0", {DATATYPE_VOID}, \
+						 "using\0", {PREPROCESSOR_USING}, \
+						 "Main\0", {KEYWORD_MAIN}, \
+						 "string\0", {DATATYPE_STRING}, \
+						 "char\0", {DATATYPE_CHAR}, \
+						 "double\0", {DATATYPE_DOUBLE}, \
+						 "unsigned\0", {MODIFIER_UNSIGNED}, \
+						 "signed\0", {MODIFIER_SIGNED}, \
+						 "long\0", {MODIFIER_LONG}, \
+						 "short\0", {MODIFIER_SHORT}, \
+						 "float\0", {DATATYPE_FLOAT}, \
+						 "return\0", {KEYWORD_RETURN}, \
+						 "null\0", {CONSTANT_NULL}, \
+						 "if\0", {KEYWORD_IF}, \
+						 "else\0", {KEYWORD_ELSE}, \
+						 "switch\0", {KEYWORD_SWITCH}, \
+						 "case\0", {KEYWORD_CASE}, \
+						 "break\0", {KEYWORD_BREAK}, \
+						 "continue\0", {KEYWORD_CONTINUE}, \
+						 "default\0", {KEYWORD_DEFAULT}, \
+						 "for\0", {KEYWORD_FOR}, \
+						 "do\0", {KEYWORD_DO}, \
+						 "while\0", {KEYWORD_WHILE}, \
+						 "struct\0", {KEYWORD_STRUCT}, \
+						 "enum\0", {KEYWORD_ENUM}, \
+						 "free\0", {KEYWORD_FREE}, \
+						 "new\0", {KEYWORD_NEW}, \
+						 "sizeof\0", {KEYWORD_SIZEOF}, \
+						 "typedef\0", {KEYWORD_TYPEDEF}, \
+						 "class\0", {CONTAINER_CLASS}, \
+						 "namespace\0", {CONTAINER_NAMESPACE}, \
+						 "public\0", {ACCESSSPECIFIER_PUBLIC}, \
+						 "private\0", {ACCESSSPECIFIER_PRIVATE}, \
+						 "protected\0", {ACCESSSPECIFIER_PROTECTED}, \
+						 "internal\0", {ACCESSSPECIFIER_INTERNAL}, \
+						 "Console\0", {KEYWORD_CONSOLE}, \
+						 "WriteLine\0", {KEYWORD_WRITELINE}, \
+						 "END\0"};
+	#endif /* CSHARP_LANG_COMPILER */
 	TRIE* root = GetTrieNode();
 	int i = 0;
 	while(dic[2 * i][0] != 'E')
@@ -1538,7 +1652,7 @@ TRIE* MakeTrie()
 	return(root);
 }
 
-uint8_t SearchInTrie(TRIE* root, char a[])
+uint16_t SearchInTrie(TRIE* root, char a[])
 {
 	int i;
 	TRIE* prev = root;
@@ -1947,6 +2061,559 @@ TOKENLIST* ModifyTokenList(TOKENLIST* head)
 	return(head);
 }
 
+int mainflag = 0;
+int Recover();
+int fprogram();
+int fpreprocessor();
+int fnamespace();
+int fclass();
+int fstatement();
+int fmembers();
+int fidlist();
+int farglist();
+
+int fidlist()
+{
+	TOKEN_MASTER type;
+	if(head->prev->data->c == SPL_RIGHTSQUARE)
+	{
+		type = head->prev->prev->prev->data->c;
+		while(head != NULL && head->data->c == TOKEN_IDENTIFIER)
+		{
+			head = head->next;
+			if(head->data->c == BINMATOP_ASSIGNMENT)
+			{
+				head == head->next;
+				if(head == NULL || head->data->c != type)
+				{
+					printf("%s: error: %d:%d: Variable assigned to wrong datatype\n\n", __filename__, head->data->line, head->data->col);
+					return(Recover());
+				}
+				head = head->next;
+				if(head != NULL && head->data->c == SPL_LEFTSQUARE)
+				{
+					head = head->next;
+					if(head != NULL && head->data->c == CONSTANT_NUM)
+					{
+						head = head->next;
+						if(head != NULL && head->data->c == SPL_RIGHTSQUARE)
+						{
+							head = head->next;
+						}
+						else
+						{
+							printf("%s: error: %d:%d: Missing right square brace\n\n", __filename__, head->data->line, head->data->col);
+							return(Recover());
+						}
+					}
+					else
+					{
+						printf("%s: error: %d:%d: Invalid array size\n\n", __filename__, head->data->line, head->data->col);
+						return(Recover());
+					}
+				}
+				else
+				{
+					printf("%s: error: %d:%d: Invalid array assignment\n\n", __filename__, head->data->line, head->data->col);
+					return(Recover());
+				}
+			}
+			if(head != NULL && head->data->c == TOKEN_SEMICOLON)
+			{
+				head = head->next;
+				return(1);
+			}
+			if(head != NULL && head->data->c == SPL_COMMA)
+			{
+				head = head->next;
+				if(head == NULL || head->data->c != TOKEN_IDENTIFIER)
+				{
+					printf("%s: error: %d:%d: Expected more identifiers\n\n", __filename__, head->data->line, head->data->col);
+					return(Recover());
+				}
+			}
+		}
+	}
+	else
+	{
+		type = head->prev->data->c;
+		while(head != NULL && head->data->c == TOKEN_IDENTIFIER)
+		{
+			head = head->next;
+			if(head->data->c == BINMATOP_ASSIGNMENT)
+			{
+				head == head->next;
+				if(head == NULL || GetTokenType(head->data->c) != TOKENTYPE_CONSTANT)
+				{
+					printf("%s: error: %d:%d: Expected constant assignment\n\n", __filename__, head->data->line, head->data->col);
+					return(Recover());
+				}
+				head = head->next;
+			}
+			if(head != NULL && head->data->c == TOKEN_SEMICOLON)
+			{
+				head = head->next;
+				return(1);
+			}
+			if(head != NULL && head->data->c == SPL_COMMA)
+			{
+				head = head->next;
+				if(head == NULL || head->data->c != TOKEN_IDENTIFIER)
+				{
+					printf("%s: error: %d:%d: Expected more identifiers\n\n", __filename__, head->data->line, head->data->col);
+					return(Recover());
+				}
+			}
+		}
+	}
+}
+
+int farglist()
+{
+	if(head->prev->prev->data->c == KEYWORD_MAIN)
+	{
+		if(head != NULL && head->data->c == DATATYPE_STRING)
+		{
+			head = head->next;
+			if(head != NULL && head->data->c == SPL_LEFTSQUARE)
+			{
+				head = head->next;
+				if(head != NULL && head->data->c == RIGHTSQUARE)
+				{
+					head = head->next;
+					if(head != NULL && head->data->c == TOKEN_IDENTIFIER)
+					{
+						head = head->next;
+						return(1);
+					}
+				}
+			}
+		}
+		printf("%s: error: %d:%d: Wrong method prototype for Main\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	while(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_DATATYPE)
+	{
+		head = head->next;
+		if(head == NULL || head->data->c != TOKEN_IDENTIFIER)
+		{
+			printf("%s: error: %d:%d: Missing identifier\n\n", __filename__, head->data->line, head->data->col);
+			return(Recover());
+		}
+		head = head->next;
+		if(head != NULL && head->data->c == SPL_COMMA)
+		{
+			head = head->next;
+			if(head == NULL || head->data->c != TOKEN_IDENTIFIER)
+			{
+				printf("%s: error: %d:%d: Missing identifier\n\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+		}
+		else
+		{
+			return(1);
+		}
+	}
+	return(1);
+}
+
+int fstatement()
+{
+	while(head != NULL && (head->data->c == TOKEN_IDENTIFIER || head->data->c == KEYWORD_FOR || head->data->c == KEYWORD_IF || head->data->c == KEYWORD_DO || head->data->c == KEYWORD_WHILE || head->data->c == KEYWORD_SWITCH || GetTokenType(head->data->c) == TOKENTYPE_MODIFIER || GetTokenType(head->data->c) == TOKENTYPE_DATATYPE))
+	{
+		if(head->data->c == TOKEN_IDENTIFIER)
+		{
+			TOKENLIST temphead = head;
+			if(fassignment() == 0)
+			{
+				head = temphead;
+			}
+			else
+			{
+				continue;
+			}
+			if(ffunccall() == 0)
+			{
+				return(0);
+			}
+		}
+	}
+	return(1);
+}
+
+int fmembers()
+{
+	while(head != NULL && (GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER || GetTokenType(head->data->c) == TOKENTYPE_MODIFIER || GetTokenType(head->data->c) == TOKENTYPE_DATATYPE))
+	{
+		if(GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER)
+		{
+			head = head->next;
+			if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER)
+			{
+				printf("%s: error: %d:%d: Ambiguous access specifier\n", __filename__, head->data->line, head->data->col);
+				printf("\t\t%d:%d: Previously defined here\n\n", head->prev->data->line, head->prev->data->col);
+				return(Recover());
+			}
+		}
+		if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_MODIFIER)
+		{
+			head = head->next;
+			if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_MODIFIER)
+			{
+				printf("%s: error: %d:%d: Ambiguous modifier\n", __filename__, head->data->line, head->data->col);
+				printf("\t\t%d:%d: Previously defined here\n\n", head->prev->data->line, head->prev->data->col);
+				return(Recover());
+			}
+		}
+		if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_DATATYPE)
+		{
+			head = head->next;
+			if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_DATATYPE)
+			{
+				printf("%s: error: %d:%d: Ambiguous data type\n", __filename__, head->data->line, head->data->col);
+				printf("\t\t%d:%d: Previously defined here\n\n", head->prev->data->line, head->prev->data->col);
+				return(Recover());
+			}
+		}
+		else
+		{
+			printf("%s: error: %d:%d: Missing data type\n\n", __filename__, head->data->line, head->data->col);
+			return(Recover());
+		}
+		if(head != NULL && head->data->c == SPL_LEFTSQUARE)
+		{
+			head = head->next;
+			if(head != NULL && head->data->c == SPL_RIGHTSQUARE)
+			{
+				head = head->next;
+			}
+			else
+			{
+				printf("%s: error: %d:%d: Invalid array data type\n\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+		}
+		TOKENLIST *mainat = NULL;
+		if(head != NULL && head->data->c == KEYWORD_MAIN)
+		{
+			mainat = head;
+			if(mainflag == 1 && head != NULL && head->next->data->c == SPL_LEFTPARANTHESIS)
+			{
+				printf("%s: error: %d:%d: Redefinition of Main\n\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+			mainflag = 1;
+			head = head->next;
+		}
+		else if(head != NULL && head->data->c == TOKEN_IDENTIFIER)
+		{
+			head = head->next;
+		}
+		else
+		{
+			printf("%s: error: %d:%d: Missing identifier\n\n", __filename__, head->data->line, head->data->col);
+		}
+		if(head != NULL && head->data->c == SPL_LEFTPARANTHESIS)
+		{
+			if(head->prev->data->c == KEYWORD_MAIN && head->prev->prev->data->c != DATATYPE_VOID && head->prev->prev->data->c != DATATYPE_INT)
+			{
+				printf("%s: error: %d:%d: Wrong method prototype for Main\n\n", __filename__, head->data->line, head->data->col);
+			}
+			head = head->next;
+			if(farglist() == 0)
+			{
+				return(Recover());
+			}
+			if(head != NULL && head->data->c == SPL_RIGHTPARANTHESIS)
+			{
+				head = head->next;
+			}
+			else
+			{
+				printf("%s: error: %d:%d: Missing paranthesis\n\n", __filename__, head->data->line, head->data->col);
+			}
+			if(head != NULL && head->data->c == TOKEN_SEMICOLON)
+			{
+				if(mainat != NULL)
+				{
+					printf("%s: warning: %d:%d: Method prototyping for Main not allowed\n\n", __filename__, head->data->line, head->data->col);
+					return(Recover());
+				}
+				head = head->next;
+				continue;
+			}
+			if(head == NULL || head->data->c != SPL_LEFTBRACE)
+			{
+				printf("%s: error: %d:%d: Missing semicolon\n\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+			head = head->next;
+			if(head != NULL && head->data->c == SPL_RIGHTBRACE)
+			{
+				printf("%s: warning: %d:%d: Empty method body\n\n", __filename__, head->data->line, head->data->col);
+				continue;
+			}
+			head = head->next;
+			if(fstatement() == 0)
+			{
+				return(Recover());
+			}
+			if(head == NULL || head->data->c != SPL_RIGHTBRACE)
+			{
+				printf("%s: error: %d:%d: Mismatching braces\n\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+			head = head->next;
+		}
+		else
+		{
+			head = head->prev;
+			if(head->data->c == KEYWORD_MAIN)
+			{
+				printf("%s: error: %d:%d: Keyword 'Main' not allowed as identifier\n\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+			if(fidlist() == 0)
+			{
+				return(0);
+			}
+		}
+	}
+}
+
+int fnamespace()
+{
+	if(head == NULL || head->data->c != CONTAINER_NAMESPACE)
+	{
+		return(Recover());
+	}
+	head = head->next;
+	if(head == NULL || head->data->c != TOKEN_IDENTIFIER)
+	{
+		printf("%s: error: %d:%d: Invalid namespace name\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	head = head->next;
+	if(head == NULL || head->data->c != SPL_LEFTBRACE)
+	{
+		printf("%s: error: %d:%d: Missing braces\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	head = head->next;
+	if(head != NULL && head->data->c == SPL_RIGHTBRACE)
+	{
+		printf("%s: warning: %d:%d: Empty namespace definition\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	while(head != NULL && (head->data->c == CONTAINER_CLASS || GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER))
+	{
+		if(GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER)
+		{
+			head = head->next;
+			if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER)
+			{
+				printf("%s: error: %d:%d: Ambiguous access specifier\n", __filename__, head->data->line, head->data->col);
+				printf("\t\t%d:%d: Previously defined here\n\n", head->prev->data->line, head->prev->data->col);
+				return(Recover());
+			}
+		}
+		if(head != NULL && head->data->c == CONTAINER_CLASS)
+		{
+			if(fclass() == 0)
+			{
+				return(0);
+			}
+		}
+		else
+		{
+			printf("%s: Error: %d:%d: No class found in namespace\n\n", __filename__, head->data->line, head->data->col);
+			return(Recover());
+		}
+	}
+	if(head == NULL || head->data->c != SPL_RIGHTBRACE)
+	{
+		printf("%s: error: %d:%d: Mismatching braces\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	head = head->next;
+	return(1);
+}
+
+int fclass()
+{
+	if(head == NULL || head->data->c != CONTAINER_CLASS)
+	{
+		return(Recover());
+	}
+	head = head->next;
+	if(head == NULL || head->data->c != TOKEN_IDENTIFIER)
+	{
+		printf("%s: error: %d:%d: Invalid class name\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	head = head->next;
+	if(head != NULL && head->data->c == SPL_COLON)
+	{
+		head = head->next;
+		if(head != NULL && head->data->c == TOKEN_IDENTIFIER)
+		{
+			head = head->next;
+		}
+		else
+		{
+			printf("%s: error: %d:%d: Invalid base class\n\n", __filename__, head->data->line, head->data->col);
+			return(Recover());
+		}
+	}
+	if(head == NULL || head->data->c != SPL_LEFTBRACE)
+	{
+		printf("%s: error: %d:%d: Missing braces\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	head = head->next;
+	if(head != NULL && head->data->c == SPL_RIGHTBRACE)
+	{
+		printf("%s: warning: %d:%d: Empty class definition\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	if(head != NULL && (GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER || GetTokenType(head->data->c) == TOKENTYPE_MODIFIER || GetTokenType(head->data->c) == TOKENTYPE_DATATYPE))
+	{
+		if(fmembers() == 0)
+		{
+			return(0);
+		}
+	}
+	if(head == NULL || head->data->c != SPL_RIGHTBRACE)
+	{
+		printf("%s: error: %d:%d: Mismatching braces\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	head = head->next;
+	return(1);
+}
+
+int Recover()
+{
+	while(head != NULL && head->data->c != TOKEN_SEMICOLON && head->data->c != SPL_LEFTBRACE && head->data->c != SPL_RIGHTBRACE)
+	{
+		head = head->next;
+	}
+	if(head != NULL)
+	{
+		head = head->next;
+	}
+	if(head != NULL)
+	{
+		return(1);
+	}
+	return(0);
+}
+
+int fpreprocessor()
+{
+	while(head != NULL && head->data->c == PREPROCESSOR_USING)
+	{
+		head = head->next;
+		if(head == NULL || head->data->c != TOKEN_IDENTIFIER)
+		{
+			printf("%s: error: %d:%d: Invalid namespace '%s'\n\n", __filename__, head->data->line, head->data->col, head->data->a);
+			return(Recover());
+		}
+		head = head->next;
+		if(head == NULL || head->data->c != TOKEN_SEMICOLON)
+		{
+			printf("%s: error: %d:%d: Expected semicolon\n\n", __filename__, head->data->line, head->data->col);
+			return(Recover());
+		}
+		head = head->next;
+	}
+	return(1);
+}
+
+int fapplication()
+{
+	int appflag = 0;
+	while(head != NULL && (GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER || head->data->c == CONTAINER_NAMESPACE || head->data->c == CONTAINER_CLASS))
+	{
+		if(GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER)
+		{
+			head = head->next;
+			if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER)
+			{
+				printf("%s: error: %d:%d: Ambiguous access specifier\n", __filename__, head->data->line, head->data->col);
+				printf("\t\t%d:%d: Previously defined here\n\n", head->prev->data->line, head->prev->data->col);
+				return(Recover());
+			}
+		}
+		if(head != NULL && head->data->c == CONTAINER_NAMESPACE)
+		{
+			if(fnamespace() == 0)
+			{
+				return(0);
+			}
+		}
+		else if(head != NULL && head->data->c == CONTAINER_CLASS)
+		{
+			if(fclass() == 0)
+			{
+				return(0);
+			}
+		}
+		else
+		{
+			return(Recover());
+		}
+		appflag = 1;
+	}
+	if(mainflag > 1)
+	{
+		printf("%s: error: Multiple definitions for Main found\n", __filename__);
+		return(0);
+	}
+	else if(mainflag == 1)
+	{
+		return(1);
+	}
+	else
+	{
+		if(appflag == 0)
+		{
+			printf("%s: error: Could not find entry point to application\n", __filename__);
+			printf("\t\tTry defining a class or a namespace\n\n");
+		}
+		else
+		{
+			printf("%s: error: No definition for Main found\n", __filename__);
+		}
+		return(0);
+	}
+	return(1);
+}
+
+int fprogram()
+{
+	if(head != NULL && head->data->c == PREPROCESSOR_USING)
+	{
+		if(fpreprocessor() == 0)
+		{
+			return(0);
+		}
+	}
+	if(fapplication() == 0)
+	{
+		printf("%s: error: %d:%d: Application error\n\n", __filename__, head->data->line, head->data->col);
+		return(0);
+	}
+	if(head != NULL)
+	{
+		printf("%s: error: %d:%d: Misplaced tokens found\n\n", __filename__, head->data->line, head->data->col);
+		return(0);
+	}
+	printf("Compilation successful\n\n");
+	return(1);
+}
+
 int main(int args, char* argv[])
 {
 	int i = 0, GENERATE_TOKEN_FILE = 0, GENERATE_SYMBOL_FILE = 0;
@@ -1991,6 +2658,10 @@ int main(int args, char* argv[])
 		printf("\t%s\n", "Provide a read enabled input file and try again\n\tFor detailed manual, try 'goop --help'");
 		return(0);
 	}
+	for(i = 0;argv[args - 1][i] != '.';i++)
+	{
+		__filename__[i] = argv[args - 1][i];
+	}
 	if(GENERATE_TOKEN_FILE)
 	{
 		char filename[101] = {'\0'};
@@ -2019,7 +2690,7 @@ int main(int args, char* argv[])
 		filename[i++] = '\0';
 		os = fopen(filename, "w");
 	}
-	TOKENLIST *head = GenerateTokenList(fp);
+	head = GenerateTokenList(fp);
 	PrintTokenList(head, op);
 	head = ModifyTokenList(head);
 	SYMBOL_TABLE* symtbl = GetSymbolTableNode();
