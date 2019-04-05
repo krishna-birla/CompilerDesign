@@ -5,3 +5,6 @@ add goop to your PATH
 run goop
 enjoy :)
 Under developement, WIP. Be patient.
+
+set alias goop=./goop
+run goop and follow instructions

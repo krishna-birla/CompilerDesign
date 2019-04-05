@@ -2061,6 +2061,76 @@ TOKENLIST* ModifyTokenList(TOKENLIST* head)
 	return(head);
 }
 
+SYMBOL_TABLE* CreateSymbolTable(SYMBOL_TABLE* symtbl, TOKENLIST *head, FILE *op)
+{
+	if(!op)
+	{
+		return(NULL);
+	}
+	int classscope = 0, funcscope = 0;
+	char func[101] = "Global\0";
+	char clas[101] = "Global\0";
+	// InsertInSymbolTable(SYMBOL_TABLE* tbl, SYMBOL* sym);
+	// SYMBOL* FormSymbol(char id[], TOKEN_MASTER access, TOKEN_MASTER type, uint8_t charac, uint8_t pLevel, TOKEN_MASTER datatype, char* othertype, uint32_t size, char scope[51], uint8_t scopelevel);
+	while(head != NULL)
+	{
+		if(head->data->c == TOKEN_IDENTIFIER)
+		{
+			if(head->next->data->c == SPL_LEFTPARANTHESIS)
+			{
+				CpyStr(func, head->data->a);
+			}
+			else if(head->prev->data->c == CONTAINER_CLASS)
+			{
+				CpyStr(clas, head->data->a);
+			}
+			else
+			{
+				if(GetTokenType(head->prev->data->c) == TOKENTYPE_DATATYPE)
+				{
+					fprintf(op, "In class %s: In function %s: Id %s: Type %s: Size %d bytes\n", clas, func, head->data->a, head->prev->data->a, GetDataSize(head->prev->data->c, 1));
+				}
+				if(GetTokenType(head->prev->data->c) == SPL_RIGHTSQUARE)
+				{
+					fprintf(op, "In class %s: In function %s: Id %s: Type %s[]: Size %d bytes\n", clas, func, head->data->a, head->prev->prev->prev->data->a, GetDataSize(head->prev->prev->prev->data->c, StrToNum(head->next->next->next->next->data->a)));
+				}
+			}
+		}
+		if(head->data->c == SPL_LEFTBRACE)
+		{
+			if(CompStr(func, "Global\0") != 1)
+			{
+				funcscope++;
+			}
+			if(CompStr(clas, "Global\0") != 1)
+			{
+				classscope++;
+			}
+		}
+		if(head->data->c == SPL_RIGHTBRACE)
+		{
+			if(CompStr(func, "Global\0") != 1)
+			{
+				funcscope--;
+			}
+			if(CompStr(clas, "Global\0") != 1)
+			{
+				classscope--;
+			}
+			if(classscope == 0)
+			{
+				CpyStr(clas, "Global\0");
+			}
+			if(funcscope == 0)
+			{
+				CpyStr(func, "Global\0");
+			}
+		}
+		head = head->next;
+	}
+	return(NULL);
+}
+
 int mainflag = 0;
 int Recover();
 int fprogram();
@@ -2071,6 +2141,457 @@ int fstatement();
 int fmembers();
 int fidlist();
 int farglist();
+int fswitch();
+int fdefault();
+int floop();
+int fassignexpn();
+int feprime();
+int fsimpleexpn();
+int fexpn();
+int ffactor();
+int fterm();
+int frelop();
+int fmulop();
+int faddop();
+
+int fterm()
+{
+	if(ffactor())
+	{
+		while(head != NULL && (head->data->c == BINMATOP_MULTIPLICATION || head->data->c == BINMATOP_DIVISION || head->data->c == BINMATOP_MODULUS))
+		{
+			if(fmulop())
+			{
+				if(ffactor())
+				{
+					continue;
+				}
+				return(0);
+			}
+			return(0);
+		}
+		return(1);
+	}
+	return(0);
+}
+
+int fsimpleexpn()
+{
+	if(fterm())
+	{
+		while(head != NULL && (head->data->c == BINMATOP_SUBTRACTION || head->data->c == BINMATOP_ADDITION))
+		{
+			if(faddop())
+			{
+				if(fterm())
+				{
+					continue;
+				}
+				return(0);
+			}
+			return(0);
+		}
+		return(1);
+	}
+	return(0);
+}
+
+int feprime()
+{
+	if(head != NULL && (head->data->c >= BINRELOP_EQUALITY && head->data->c <= BINRELOP_LESSEROREQUAL))
+	{
+		if(frelop())
+		{
+			if(fsimpleexpn())
+			{
+				return(1);
+			}
+			return(0);
+		}
+		return(0);
+	}
+	return(1);
+}
+
+int frelop()
+{
+	if(head != NULL && (head->data->c >= BINRELOP_EQUALITY && head->data->c <= BINRELOP_LESSEROREQUAL))
+	{
+		head = head->next;
+		return(1);
+	}
+
+	printf("%s: error: %d:%d: Relational operator expected\n", __filename__, head->data->line, head->data->col);
+	return(0);
+}
+
+int faddop()
+{
+	if(head != NULL && (head->data->c == BINMATOP_SUBTRACTION || head->data->c == BINMATOP_ADDITION))
+	{
+		head = head->next;
+		return(1);
+	}
+
+	printf("%s: error: %d:%d: Add/Sub operator expected\n", __filename__, head->data->line, head->data->col);
+	return(0);
+}
+
+int fmulop()
+{
+	if(head != NULL && (head->data->c == BINMATOP_MODULUS || head->data->c == BINMATOP_DIVISION || head->data->c == BINMATOP_MULTIPLICATION))
+	{
+		head = head->next;
+		return(1);
+	}
+
+	printf("%s: error: %d:%d: Mul/Div operator expected\n", __filename__, head->data->line, head->data->col);
+	return(0);
+}
+
+int fexpn()
+{
+	if(head != NULL && fsimpleexpn())
+	{
+		if(head != NULL && feprime())
+		{
+			return(1);
+		}
+		return(0);
+	}
+	return(0);
+}
+
+int fidentifier()
+{
+	if(head != NULL && head->data->c == TOKEN_IDENTIFIER)
+	{
+		head = head->next;
+		if(head != NULL && head->data->c == SPL_LEFTSQUARE)
+		{
+			head = head->next;
+			if(head != NULL && head->data->c == CONSTANT_NUM)
+			{
+				head = head->next;
+				if(head != NULL && head->data->c == SPL_RIGHTSQUARE)
+				{
+					head = head->next;
+					return(1);
+				}
+				printf("%s: error: %d:%d: ']' operator expected\n", __filename__, head->data->line, head->data->col);
+				return(0);
+			}
+			printf("%s: error: %d:%d: size_t type constant expected\n", __filename__, head->data->line, head->data->col);
+			return(0);
+		}
+		return(1);
+	}
+	printf("%s: error: %d:%d: Identifier expected\n", __filename__, head->data->line, head->data->col);
+	return(0);
+}
+
+int ffactor()
+{
+	if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_CONSTANT)
+	{
+		head = head->next;
+		return(1);
+	}
+	if(fidentifier())
+	{
+		return(1);
+	}
+	printf("%s: error: %d:%d: Constant/Identifier expected\n", __filename__, head->data->line, head->data->col);
+	return(0);
+}
+
+int fassignexpn()
+{
+	if(fidentifier())
+	{
+		if(head != NULL && (head->data->c == BINMATOP_ASSIGNMENT || head->data->c == BINMATOP_MULTIPLYANDASSIGN || head->data->c == BINMATOP_DIVIDEANDASSIGN || head->data->c == BINMATOP_ADDANDASSIGN || head->data->c == BINMATOP_SUBTRACTANDASSIGN))
+		{
+			head = head->next;
+			if(head != NULL && fexpn())
+			{
+				return(1);
+			}
+			printf("%s: error: %d:%d: Invalid assignment\n", __filename__, head->data->line, head->data->col);
+			return(0);
+		}
+		return(1);
+	}
+	return(0);
+}
+
+// int floop()
+// {
+// 	if(head != NULL && head->data->c == KEYWORD_FOR)
+// 	{
+// 		head = head->next;
+// 		if(head != NULL && head->data->c == SPL_LEFTPARANTHESIS)
+// 		{
+// 			head = head->next;
+// 			if(fassignexpn() == 0)
+// 			{
+// 				return(0);
+// 			}
+// 			if(head == NULL || CompStr(head->data->a, ";") == 0)
+// 			{
+// 				return(0);
+// 			}
+// 			head = head->next;
+// 			if(fexpn() == 0)
+// 			{
+// 				return(0);
+// 			}
+// 			if(head == NULL || CompStr(head->data->a, ";") == 0)
+// 			{
+// 				return(0);
+// 			}
+// 			head = head->next;
+// 			if(fassignexpn() == 0)
+// 			{
+// 				return(0);
+// 			}
+// 			if(head != NULL && CompStr(head->data->a, ")"))
+// 			{
+// 				head = head->next;
+// 				if(head != NULL && CompStr(head->data->a, ";"))
+// 				{
+// 					head = head->next;
+// 					return(1);
+// 				}
+// 				if(head != NULL && CompStr(head->data->a, "{"))
+// 				{
+// 					head = head->next;
+// 					if(fstatementlist() == 0)
+// 					{
+// 						return(0);
+// 					}
+// 					if(head != NULL && CompStr(head->data->a, "}"))
+// 					{
+// 						head = head->next;
+// 						return(1);
+// 					}
+// 					printf("error: %d:%d: '}' expected\n", head->data->line, head->data->col);
+// 					return(0);
+// 				}
+// 				printf("error: %d:%d: '{' or ';' expected\n", head->data->line, head->data->col);
+// 				return(0);
+// 			}
+// 			printf("error: %d:%d: ')' expected\n", head->data->line, head->data->col);
+// 			return(0);
+// 		}
+// 		printf("error: %d:%d: '(' expected\n", head->data->line, head->data->col);
+// 		return(0);
+// 	}
+// 	if(head != NULL && CompStr(head->data->a, "while"))
+// 	{
+// 		head = head->next;
+// 		if(head != NULL && CompStr(head->data->a, "("))
+// 		{
+// 			head = head->next;
+// 			if(fexpn() == 0)
+// 			{
+// 				return(0);
+// 			}
+// 			if(head != NULL && CompStr(head->data->a, ")"))
+// 			{
+// 				head = head->next;
+// 				if(head != NULL && CompStr(head->data->a, ";"))
+// 				{
+// 					head = head->next;
+// 					return(1);
+// 				}
+// 				if(head != NULL && CompStr(head->data->a, "{"))
+// 				{
+// 					head = head->next;
+// 					if(fstatementlist() == 0)
+// 					{
+// 						return(0);
+// 					}
+// 					if(head != NULL && CompStr(head->data->a, "}"))
+// 					{
+// 						head = head->next;
+// 						return(1);
+// 					}
+// 					printf("error: %d:%d: '}' expected\n", head->data->line, head->data->col);
+// 					return(0);
+// 				}
+// 				printf("error: %d:%d: '{' or ';' expected\n", head->data->line, head->data->col);
+// 				return(0);
+// 			}
+// 			printf("error: %d:%d: ')' expected\n", head->data->line, head->data->col);
+// 			return(0);
+// 		}
+// 		printf("error: %d:%d: '(' expected\n", head->data->line, head->data->col);
+// 		return(0);
+// 	}
+// 	return(0);
+// }
+
+int fcase()
+{
+	if(head != NULL && head->data->c == KEYWORD_CASE)
+	{
+		head = head->next;
+		if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_CONSTANT)
+		{
+			head = head->next;
+			if(head != NULL && head->data->c == SPL_COLON)
+			{
+				head = head->next;
+				if(head != NULL && head->data->c == SPL_LEFTBRACE)
+				{
+					head = head->next;
+					if(fstatement() == 0)
+					{
+						return(Recover());
+					}
+					if(head != NULL && head->data->c == KEYWORD_BREAK)
+					{
+						head = head->next;
+						// printf("\n%s\n", head->data->a);
+						if(head == NULL || head->data->c != TOKEN_SEMICOLON)
+						{
+							printf("%s: error: %d:%d: Expected semicolon\n\n", __filename__, head->data->line, head->data->col);
+							return(Recover());
+						}
+						head = head->next;
+					}
+					if(head != NULL && head->data->c == SPL_RIGHTBRACE)
+					{
+						head = head->next;
+						return(1);
+					}
+					printf("%s: error: %d:%d: Mismatching braces\n\n", __filename__, head->data->line, head->data->col);
+					return(Recover());
+				}
+			}
+			printf("%s: error: %d:%d: Expected colon ':'\n\n", __filename__, head->data->line, head->data->col);
+			return(Recover());
+		}
+		printf("%s: error: %d:%d: Constant literal expected\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	return(Recover());
+}
+
+int fcaselist()
+{
+	// printf("\n%s\n", head->data->a);
+	if(fcase())
+	{
+		while(head != NULL && head->data->c == KEYWORD_CASE)
+		{
+			if(fcase() == 0)
+			{
+				printf("%s: error: %d:%d: Invalid case statement\n\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+		}
+		return(1);
+	}
+	printf("%s: error: %d:%d: Switch requires case, invalid switch block\n\n", __filename__, head->data->line, head->data->col);
+	return(Recover());
+}
+
+int fdefault()
+{
+	if(head != NULL && head->data->c == KEYWORD_DEFAULT)
+	{
+		head = head->next;
+		if(head != NULL && head->data->c == SPL_COLON)
+		{
+			head = head->next;
+			if(head != NULL && head->data->c == SPL_LEFTBRACE)
+			{
+				head = head->next;
+				if(fstatement() == 0)
+				{
+					return(Recover());
+				}
+				if(head != NULL && head->data->c == KEYWORD_BREAK)
+				{
+					head = head->next;
+					if(head == NULL || head->data->c != TOKEN_SEMICOLON)
+					{
+						printf("%s: error: %d:%d: Expected semicolon\n\n", __filename__, head->data->line, head->data->col);
+						return(Recover());
+					}
+					head = head->next;
+				}
+				if(head != NULL && head->data->c == SPL_RIGHTBRACE)
+				{
+					head = head->next;
+					return(1);
+				}
+				printf("%s: error: %d:%d: Mismatching braces\n\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+			printf("%s: error: %d:%d: Expected left brace\n\n", __filename__, head->data->line, head->data->col);
+			return(Recover());
+		}
+		printf("%s: error: %d:%d: Expected colon ':'\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	return(1);
+}
+
+int fswitch()
+{
+	// printf("\n%s\n", head->data->a);
+	if(head != NULL && head->data->c == KEYWORD_SWITCH)
+	{
+		head = head->next;
+		if(head != NULL && head->data->c == SPL_LEFTPARANTHESIS)
+		{
+			head = head->next;
+			if(head == NULL || head->data->c != TOKEN_IDENTIFIER)
+			{
+				printf("%s: error: %d:%d: Expected identifier assignment\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+			if(fassignexpn() == 0)
+			{
+				printf("%s: error: %d:%d: Expected identifier assignment\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+			if(head != NULL && head->data->c == SPL_RIGHTPARANTHESIS)
+			{
+				// printf("\n%s\n", head->data->a);
+				head = head->next;
+				if(head != NULL && head->data->c == SPL_LEFTBRACE)
+				{
+					head = head->next;
+					if(fcaselist() == 0)
+					{
+						return(0);
+					}
+					if(fdefault() == 0)
+					{
+						return(0);
+					}
+					if(head != NULL && head->data->c == SPL_RIGHTBRACE)
+					{
+						head = head->next;
+						return(1);
+					}
+					printf("%s: error: %d:%d: Missing paranthesis\n", __filename__, head->data->line, head->data->col);
+					return(Recover());
+				}
+				printf("%s: error: %d:%d: Mismatching braces\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
+			}
+			printf("%s: error: %d:%d: Mismatching braces\n", __filename__, head->data->line, head->data->col);
+			return(Recover());
+		}
+		printf("%s: error: %d:%d: Missing paranthesis\n\n", __filename__, head->data->line, head->data->col);
+		return(Recover());
+	}
+	return(Recover());
+}
 
 int fidlist()
 {
@@ -2083,7 +2604,13 @@ int fidlist()
 			head = head->next;
 			if(head->data->c == BINMATOP_ASSIGNMENT)
 			{
-				head == head->next;
+				head = head->next;
+				if(head == NULL || head->data->c != KEYWORD_NEW)
+				{
+					printf("%s: error: %d:%d: Expected allocator 'new'\n\n", __filename__, head->data->line, head->data->col);
+					return(Recover());
+				}
+				head = head->next;
 				if(head == NULL || head->data->c != type)
 				{
 					printf("%s: error: %d:%d: Variable assigned to wrong datatype\n\n", __filename__, head->data->line, head->data->col);
@@ -2142,7 +2669,7 @@ int fidlist()
 			head = head->next;
 			if(head->data->c == BINMATOP_ASSIGNMENT)
 			{
-				head == head->next;
+				head = head->next;
 				if(head == NULL || GetTokenType(head->data->c) != TOKENTYPE_CONSTANT)
 				{
 					printf("%s: error: %d:%d: Expected constant assignment\n\n", __filename__, head->data->line, head->data->col);
@@ -2178,7 +2705,7 @@ int farglist()
 			if(head != NULL && head->data->c == SPL_LEFTSQUARE)
 			{
 				head = head->next;
-				if(head != NULL && head->data->c == RIGHTSQUARE)
+				if(head != NULL && head->data->c == SPL_RIGHTSQUARE)
 				{
 					head = head->next;
 					if(head != NULL && head->data->c == TOKEN_IDENTIFIER)
@@ -2204,9 +2731,9 @@ int farglist()
 		if(head != NULL && head->data->c == SPL_COMMA)
 		{
 			head = head->next;
-			if(head == NULL || head->data->c != TOKEN_IDENTIFIER)
+			if(head == NULL || GetTokenType(head->data->c) != TOKENTYPE_DATATYPE)
 			{
-				printf("%s: error: %d:%d: Missing identifier\n\n", __filename__, head->data->line, head->data->col);
+				printf("%s: error: %d:%d: Missing data type\n\n", __filename__, head->data->line, head->data->col);
 				return(Recover());
 			}
 		}
@@ -2220,23 +2747,46 @@ int farglist()
 
 int fstatement()
 {
-	while(head != NULL && (head->data->c == TOKEN_IDENTIFIER || head->data->c == KEYWORD_FOR || head->data->c == KEYWORD_IF || head->data->c == KEYWORD_DO || head->data->c == KEYWORD_WHILE || head->data->c == KEYWORD_SWITCH || GetTokenType(head->data->c) == TOKENTYPE_MODIFIER || GetTokenType(head->data->c) == TOKENTYPE_DATATYPE))
+	while(head != NULL && (head->data->c == TOKEN_IDENTIFIER || head->data->c == KEYWORD_FOR || head->data->c == KEYWORD_IF || head->data->c == KEYWORD_DO || head->data->c == KEYWORD_WHILE || head->data->c == KEYWORD_SWITCH || GetTokenType(head->data->c) == TOKENTYPE_MODIFIER || GetTokenType(head->data->c) == TOKENTYPE_DATATYPE || head->data->c == KEYWORD_CONSOLE))
 	{
 		if(head->data->c == TOKEN_IDENTIFIER)
 		{
-			TOKENLIST temphead = head;
-			if(fassignment() == 0)
+			TOKENLIST *temp = head;
+			if(fassignexpn() == 0)
 			{
-				head = temphead;
+				head = temp;
 			}
-			else
+			// printf("\n%s\n", head->data->a);
+			if(head == NULL || head->data->c != TOKEN_SEMICOLON)
 			{
-				continue;
+				printf("%s: error: %d:%d: Missing semicolon\n\n", __filename__, head->data->line, head->data->col);
+				return(Recover());
 			}
-			if(ffunccall() == 0)
+			head = head->next;
+		}
+		if(head->data->c == KEYWORD_FOR)
+		{
+			//
+		}
+		if(head->data->c == KEYWORD_IF)
+		{
+			//
+		}
+		if(head->data->c == KEYWORD_SWITCH)
+		{
+			// printf("\n%s\n", head->data->a);
+			if(fswitch() == 0)
 			{
 				return(0);
 			}
+		}
+		if(head->data->c == KEYWORD_WHILE)
+		{
+			//
+		}
+		if(head->data->c == KEYWORD_CONSOLE)
+		{
+			//
 		}
 	}
 	return(1);
@@ -2266,6 +2816,7 @@ int fmembers()
 				return(Recover());
 			}
 		}
+		// printf("\n%s\n", head->data->a);
 		if(head != NULL && GetTokenType(head->data->c) == TOKENTYPE_DATATYPE)
 		{
 			head = head->next;
@@ -2281,6 +2832,7 @@ int fmembers()
 			printf("%s: error: %d:%d: Missing data type\n\n", __filename__, head->data->line, head->data->col);
 			return(Recover());
 		}
+		// printf("\n%s\n", head->data->a);
 		if(head != NULL && head->data->c == SPL_LEFTSQUARE)
 		{
 			head = head->next;
@@ -2314,6 +2866,7 @@ int fmembers()
 		{
 			printf("%s: error: %d:%d: Missing identifier\n\n", __filename__, head->data->line, head->data->col);
 		}
+		// printf("\n%s\n", head->data->a);
 		if(head != NULL && head->data->c == SPL_LEFTPARANTHESIS)
 		{
 			if(head->prev->data->c == KEYWORD_MAIN && head->prev->prev->data->c != DATATYPE_VOID && head->prev->prev->data->c != DATATYPE_INT)
@@ -2328,6 +2881,7 @@ int fmembers()
 			if(head != NULL && head->data->c == SPL_RIGHTPARANTHESIS)
 			{
 				head = head->next;
+				// printf("\n%s\n", head->data->a);
 			}
 			else
 			{
@@ -2343,18 +2897,21 @@ int fmembers()
 				head = head->next;
 				continue;
 			}
+			// printf("%d %d %s\n", head->data->line, head->data->col, head->data->a);
 			if(head == NULL || head->data->c != SPL_LEFTBRACE)
 			{
 				printf("%s: error: %d:%d: Missing semicolon\n\n", __filename__, head->data->line, head->data->col);
 				return(Recover());
 			}
 			head = head->next;
+			// printf("%d %d %s\n", head->data->line, head->data->col, head->data->a);
 			if(head != NULL && head->data->c == SPL_RIGHTBRACE)
 			{
 				printf("%s: warning: %d:%d: Empty method body\n\n", __filename__, head->data->line, head->data->col);
+				head = head->next;
 				continue;
 			}
-			head = head->next;
+			// printf("\n%s\n", head->data->a);
 			if(fstatement() == 0)
 			{
 				return(Recover());
@@ -2380,6 +2937,7 @@ int fmembers()
 			}
 		}
 	}
+	return(1);
 }
 
 int fnamespace()
@@ -2420,23 +2978,27 @@ int fnamespace()
 		}
 		if(head != NULL && head->data->c == CONTAINER_CLASS)
 		{
+			// printf("\nFor class %s\n", head->next->data->a);
 			if(fclass() == 0)
 			{
+				// printf("%s\n", "Here?");
 				return(0);
 			}
 		}
 		else
 		{
-			printf("%s: Error: %d:%d: No class found in namespace\n\n", __filename__, head->data->line, head->data->col);
+			printf("%s: Error: %d:%d: Invalid member in namespace\n\n", __filename__, head->data->line, head->data->col);
 			return(Recover());
 		}
 	}
+	// printf("%d %d %s\n", head->data->line, head->data->col, head->data->a);
 	if(head == NULL || head->data->c != SPL_RIGHTBRACE)
 	{
 		printf("%s: error: %d:%d: Mismatching braces\n\n", __filename__, head->data->line, head->data->col);
 		return(Recover());
 	}
 	head = head->next;
+	// printf("%d %d %s\n", head->data->line, head->data->col, head->data->a);
 	return(1);
 }
 
@@ -2452,6 +3014,7 @@ int fclass()
 		printf("%s: error: %d:%d: Invalid class name\n\n", __filename__, head->data->line, head->data->col);
 		return(Recover());
 	}
+	// printf("\n%s\n", head->data->a);
 	head = head->next;
 	if(head != NULL && head->data->c == SPL_COLON)
 	{
@@ -2466,24 +3029,29 @@ int fclass()
 			return(Recover());
 		}
 	}
+	// printf("\n%s\n", head->data->a);
 	if(head == NULL || head->data->c != SPL_LEFTBRACE)
 	{
 		printf("%s: error: %d:%d: Missing braces\n\n", __filename__, head->data->line, head->data->col);
 		return(Recover());
 	}
 	head = head->next;
+	// printf("\n%s\n", head->data->a);
 	if(head != NULL && head->data->c == SPL_RIGHTBRACE)
 	{
 		printf("%s: warning: %d:%d: Empty class definition\n\n", __filename__, head->data->line, head->data->col);
-		return(Recover());
+		head = head->next;
+		return(1);
 	}
 	if(head != NULL && (GetTokenType(head->data->c) == TOKENTYPE_ACCESSSPECIFIER || GetTokenType(head->data->c) == TOKENTYPE_MODIFIER || GetTokenType(head->data->c) == TOKENTYPE_DATATYPE))
 	{
+		// printf("\n%s\n", head->data->a);
 		if(fmembers() == 0)
 		{
 			return(0);
 		}
 	}
+	// printf("fclass: %d %d %s\n", head->data->line, head->data->col, head->data->a);
 	if(head == NULL || head->data->c != SPL_RIGHTBRACE)
 	{
 		printf("%s: error: %d:%d: Mismatching braces\n\n", __filename__, head->data->line, head->data->col);
@@ -2495,6 +3063,7 @@ int fclass()
 
 int Recover()
 {
+	return(0);
 	while(head != NULL && head->data->c != TOKEN_SEMICOLON && head->data->c != SPL_LEFTBRACE && head->data->c != SPL_RIGHTBRACE)
 	{
 		head = head->next;
@@ -2607,10 +3176,10 @@ int fprogram()
 	}
 	if(head != NULL)
 	{
+		// printf("%d %d %s\n", head->data->line, head->data->col, head->data->a);
 		printf("%s: error: %d:%d: Misplaced tokens found\n\n", __filename__, head->data->line, head->data->col);
 		return(0);
 	}
-	printf("Compilation successful\n\n");
 	return(1);
 }
 
@@ -2658,7 +3227,7 @@ int main(int args, char* argv[])
 		printf("\t%s\n", "Provide a read enabled input file and try again\n\tFor detailed manual, try 'goop --help'");
 		return(0);
 	}
-	for(i = 0;argv[args - 1][i] != '.';i++)
+	for(i = 0;argv[args - 1][i] != '\0';i++)
 	{
 		__filename__[i] = argv[args - 1][i];
 	}
@@ -2692,259 +3261,263 @@ int main(int args, char* argv[])
 	}
 	head = GenerateTokenList(fp);
 	PrintTokenList(head, op);
-	head = ModifyTokenList(head);
-	SYMBOL_TABLE* symtbl = GetSymbolTableNode();
-	uint8_t inProcess = 0;
-	CONSTRUCT_TYPE ctype = CONSTRUCT_NA;
-	char Identifier[51] = "";
-    TOKEN_MASTER AccessSpecifier = TOKENMASTER_NA;
-    TOKEN_MASTER IdentifierType = TOKENMASTER_NA;
-    uint8_t IdentifierCharacteristics = 0;
-    uint8_t PointerLevel = 0;
-    TOKEN_MASTER DataType = DATATYPE_OTHER;
-    char* OtherDataType = NULL;
-    uint32_t IdentifierSize = 1;
-    char scope[51] = "Global\0";
-    char PrevScope[51] = "";
-    uint8_t scopelevel = 0;
-	while(head != NULL)
-	{
-		TOKEN *t = head->data;
-		switch(GetTokenType(t->c))
-		{
-			case TOKENTYPE_ACCESSSPECIFIER:{
-				if(ctype != CONSTRUCT_NA)
-				{
-					if(CompStr(scope, PrevScope) != 1)
-					{
-						CpyStr(PrevScope, scope);
-						printf("%s: In scope '%s'\n", argv[args - 1], scope);
-					}
-					printf("%s: error: %d:%d: Wrong access specifier usage\n\n", argv[args - 1], t->line, t->col);
-					break;
-				}
-				if(inProcess == 0)
-				{
-					inProcess = 1;
-				}
-				if(AccessSpecifier == TOKENMASTER_NA)
-				{
-					AccessSpecifier = t->c;
-				}
-				else
-				{
-					if(CompStr(scope, PrevScope) != 1)
-					{
-						CpyStr(PrevScope, scope);
-						printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-					}
-					if(AccessSpecifier == t->c)
-					{
-						printf("%s: error: %d:%d: Duplicate access specifier\n\n", argv[args - 1], t->line, t->col);
-					}
-					else
-					{
-						printf("%s: error: %d:%d: Ambiguous access specifier\n\n", argv[args - 1], t->line, t->col);
-					}
-				}
-				break;
-			}
-			case TOKENTYPE_MODIFIER:{
-				if(ctype != CONSTRUCT_NA)
-				{
-					if(CompStr(scope, PrevScope) != 1)
-					{
-						CpyStr(PrevScope, scope);
-						printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-					}
-					printf("%s: error: %d:%d: Wrong modofier usage\n\n", argv[args - 1], t->line, t->col);
-					break;
-				}
-				if(inProcess == 0)
-				{
-					inProcess = 1;
-				}
-				switch(t->c)
-				{
-					case MODIFIER_VOLATILE:{
-						if((IdentifierCharacteristics & BIT_VOLATILE))
-						{
-							if(CompStr(scope, PrevScope) != 1)
-							{
-								CpyStr(PrevScope, scope);
-								printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-							}
-							printf("%s: error: %d:%d: Duplicate volatile modifier\n\n", argv[args - 1], t->line, t->col);
-						}
-						else
-						{
-							IdentifierCharacteristics |= BIT_VOLATILE;
-						}
-						break;
-					}
-					case MODIFIER_STATIC:{
-						if((IdentifierCharacteristics & BIT_STATIC))
-						{
-							if(CompStr(scope, PrevScope) != 1)
-							{
-								CpyStr(PrevScope, scope);
-								printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-							}
-							printf("%s: error: %d:%d: Duplicate static modifier\n", argv[args - 1], t->line, t->col);
-						}
-						else
-						{
-							IdentifierCharacteristics |= BIT_STATIC;
-						}
-						break;
-					}
-					case MODIFIER_CONST:{
-						if((IdentifierCharacteristics & BIT_CONST))
-						{
-							if(CompStr(scope, PrevScope) != 1)
-							{
-								CpyStr(PrevScope, scope);
-								printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-							}
-							printf("%s: error: %d:%d: Duplicate const modifier\n", argv[args - 1], t->line, t->col);
-						}
-						else
-						{
-							IdentifierCharacteristics |= BIT_CONST;
-						}
-						break;
-					}
-					case MODIFIER_EXTERN:{
-						if(!(IdentifierCharacteristics & BIT_EXTERN) && (IdentifierCharacteristics & (~BIT_EXTERN)))
-						{
-							if(CompStr(scope, PrevScope) != 1)
-							{
-								CpyStr(PrevScope, scope);
-								printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-							}
-							printf("%s: error: %d:%d: Wrong extern usage\n", argv[args - 1], t->line, t->col);
-						}
-						else if((IdentifierCharacteristics & BIT_EXTERN))
-						{
-							if(CompStr(scope, PrevScope) != 1)
-							{
-								CpyStr(PrevScope, scope);
-								printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-							}
-							printf("%s: error: %d:%d: Duplicate extern modifier\n", argv[args - 1], t->line, t->col);
-						}
-						else
-						{
-							IdentifierCharacteristics |= BIT_EXTERN;
-						}
-						break;
-					}
-					case MODIFIER_SIGNED:{
-						if((IdentifierCharacteristics & BIT_SIGNED))
-						{
-							if(CompStr(scope, PrevScope) != 1)
-							{
-								CpyStr(PrevScope, scope);
-								printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-							}
-							printf("%s: error: %d:%d: Duplicate signed modifier\n", argv[args - 1], t->line, t->col);
-						}
-						else if((IdentifierCharacteristics & BIT_UNSIGNED))
-						{
-							if(CompStr(scope, PrevScope) != 1)
-							{
-								CpyStr(PrevScope, scope);
-								printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-							}
-							printf("%s: error: %d:%d: Ambiguous sign modifier\n", argv[args - 1], t->line, t->col);
-						}
-						else
-						{
-							IdentifierCharacteristics |= BIT_SIGNED;
-						}
-						break;
-					}
-					case MODIFIER_UNSIGNED:{
-						if((IdentifierCharacteristics & BIT_UNSIGNED))
-						{
-							if(CompStr(scope, PrevScope) != 1)
-							{
-								CpyStr(PrevScope, scope);
-								printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-							}
-							printf("%s: error: %d:%d: Duplicate unsigned modifier\n", argv[args - 1], t->line, t->col);
-						}
-						else if((IdentifierCharacteristics & BIT_SIGNED))
-						{
-							if(CompStr(scope, PrevScope) != 1)
-							{
-								CpyStr(PrevScope, scope);
-								printf("%s: In scope of '%s'\n", argv[args - 1], scope);
-							}
-							printf("%s: error: %d:%d: Ambiguous sign modifier\n", argv[args - 1], t->line, t->col);
-						}
-						else
-						{
-							IdentifierCharacteristics |= BIT_UNSIGNED;
-						}
-						break;
-					}
-				}
-				break;
-			}
-			case TOKENTYPE_DATATYPE:{
-				if(inProcess == 0)
-				{
-					inProcess = 1;
-				}
-				break;
-			}
-			case TOKENTYPE_IDENTIFIER:{
-				if(AccessSpecifier == TOKENMASTER_NA)
-				{
-					AccessSpecifier = ACCESSSPECIFIER_PRIVATE;
-				}
-				break;
-			}
-			case TOKENTYPE_SPECIALCHAR:{
-				break;
-			}
-			case TOKENTYPE_PREPROCESSOR:{
-				break;
-			}
-			case TOKENTYPE_OPERATOR:{
-				break;
-			}
-			case TOKENTYPE_SEMICOLON:{
-				CpyStr(Identifier, "");
-				inProcess = 0;
-				ctype = CONSTRUCT_NA;
-    			AccessSpecifier = TOKENMASTER_NA;
-    			IdentifierType = TOKENMASTER_NA;
-    			IdentifierCharacteristics = 0;
-    			PointerLevel = 0;
-    			DataType = DATATYPE_OTHER;
-    			OtherDataType = NULL;
-    			IdentifierSize = 1;
-				break;
-			}
-			case TOKENTYPE_CONTAINER:{
-				break;
-			}
-			case TOKENTYPE_KEYWORD:{
-				break;
-			}
-			case TOKENTYPE_CONSTANT:{
-				break;
-			}
-			default:{
-				break;
-			}
-		}
-		head = head->next;
-	}
+	// mainhead = ModifyTokenList(mainhead);
+	// SYMBOL_TABLE* symtbl = GetSymbolTableNode();
+	// uint8_t inProcess = 0;
+	// CONSTRUCT_TYPE ctype = CONSTRUCT_NA;
+	// char Identifier[51] = "";
+ //    TOKEN_MASTER AccessSpecifier = TOKENMASTER_NA;
+ //    TOKEN_MASTER IdentifierType = TOKENMASTER_NA;
+ //    uint8_t IdentifierCharacteristics = 0;
+ //    uint8_t PointerLevel = 0;
+ //    TOKEN_MASTER DataType = DATATYPE_OTHER;
+ //    char* OtherDataType = NULL;
+ //    uint32_t IdentifierSize = 1;
+ //    char scope[51] = "Global\0";
+ //    char PrevScope[51] = "";
+ //    uint8_t scopelevel = 0;
+	// while(head != NULL)
+	// {
+	// 	TOKEN *t = head->data;
+	// 	switch(GetTokenType(t->c))
+	// 	{
+	// 		case TOKENTYPE_ACCESSSPECIFIER:{
+	// 			if(ctype != CONSTRUCT_NA)
+	// 			{
+	// 				if(CompStr(scope, PrevScope) != 1)
+	// 				{
+	// 					CpyStr(PrevScope, scope);
+	// 					printf("%s: In scope '%s'\n", argv[args - 1], scope);
+	// 				}
+	// 				printf("%s: error: %d:%d: Wrong access specifier usage\n\n", argv[args - 1], t->line, t->col);
+	// 				break;
+	// 			}
+	// 			if(inProcess == 0)
+	// 			{
+	// 				inProcess = 1;
+	// 			}
+	// 			if(AccessSpecifier == TOKENMASTER_NA)
+	// 			{
+	// 				AccessSpecifier = t->c;
+	// 			}
+	// 			else
+	// 			{
+	// 				if(CompStr(scope, PrevScope) != 1)
+	// 				{
+	// 					CpyStr(PrevScope, scope);
+	// 					printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 				}
+	// 				if(AccessSpecifier == t->c)
+	// 				{
+	// 					printf("%s: error: %d:%d: Duplicate access specifier\n\n", argv[args - 1], t->line, t->col);
+	// 				}
+	// 				else
+	// 				{
+	// 					printf("%s: error: %d:%d: Ambiguous access specifier\n\n", argv[args - 1], t->line, t->col);
+	// 				}
+	// 			}
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_MODIFIER:{
+	// 			if(ctype != CONSTRUCT_NA)
+	// 			{
+	// 				if(CompStr(scope, PrevScope) != 1)
+	// 				{
+	// 					CpyStr(PrevScope, scope);
+	// 					printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 				}
+	// 				printf("%s: error: %d:%d: Wrong modofier usage\n\n", argv[args - 1], t->line, t->col);
+	// 				break;
+	// 			}
+	// 			if(inProcess == 0)
+	// 			{
+	// 				inProcess = 1;
+	// 			}
+	// 			switch(t->c)
+	// 			{
+	// 				case MODIFIER_VOLATILE:{
+	// 					if((IdentifierCharacteristics & BIT_VOLATILE))
+	// 					{
+	// 						if(CompStr(scope, PrevScope) != 1)
+	// 						{
+	// 							CpyStr(PrevScope, scope);
+	// 							printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 						}
+	// 						printf("%s: error: %d:%d: Duplicate volatile modifier\n\n", argv[args - 1], t->line, t->col);
+	// 					}
+	// 					else
+	// 					{
+	// 						IdentifierCharacteristics |= BIT_VOLATILE;
+	// 					}
+	// 					break;
+	// 				}
+	// 				case MODIFIER_STATIC:{
+	// 					if((IdentifierCharacteristics & BIT_STATIC))
+	// 					{
+	// 						if(CompStr(scope, PrevScope) != 1)
+	// 						{
+	// 							CpyStr(PrevScope, scope);
+	// 							printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 						}
+	// 						printf("%s: error: %d:%d: Duplicate static modifier\n", argv[args - 1], t->line, t->col);
+	// 					}
+	// 					else
+	// 					{
+	// 						IdentifierCharacteristics |= BIT_STATIC;
+	// 					}
+	// 					break;
+	// 				}
+	// 				case MODIFIER_CONST:{
+	// 					if((IdentifierCharacteristics & BIT_CONST))
+	// 					{
+	// 						if(CompStr(scope, PrevScope) != 1)
+	// 						{
+	// 							CpyStr(PrevScope, scope);
+	// 							printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 						}
+	// 						printf("%s: error: %d:%d: Duplicate const modifier\n", argv[args - 1], t->line, t->col);
+	// 					}
+	// 					else
+	// 					{
+	// 						IdentifierCharacteristics |= BIT_CONST;
+	// 					}
+	// 					break;
+	// 				}
+	// 				case MODIFIER_EXTERN:{
+	// 					if(!(IdentifierCharacteristics & BIT_EXTERN) && (IdentifierCharacteristics & (~BIT_EXTERN)))
+	// 					{
+	// 						if(CompStr(scope, PrevScope) != 1)
+	// 						{
+	// 							CpyStr(PrevScope, scope);
+	// 							printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 						}
+	// 						printf("%s: error: %d:%d: Wrong extern usage\n", argv[args - 1], t->line, t->col);
+	// 					}
+	// 					else if((IdentifierCharacteristics & BIT_EXTERN))
+	// 					{
+	// 						if(CompStr(scope, PrevScope) != 1)
+	// 						{
+	// 							CpyStr(PrevScope, scope);
+	// 							printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 						}
+	// 						printf("%s: error: %d:%d: Duplicate extern modifier\n", argv[args - 1], t->line, t->col);
+	// 					}
+	// 					else
+	// 					{
+	// 						IdentifierCharacteristics |= BIT_EXTERN;
+	// 					}
+	// 					break;
+	// 				}
+	// 				case MODIFIER_SIGNED:{
+	// 					if((IdentifierCharacteristics & BIT_SIGNED))
+	// 					{
+	// 						if(CompStr(scope, PrevScope) != 1)
+	// 						{
+	// 							CpyStr(PrevScope, scope);
+	// 							printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 						}
+	// 						printf("%s: error: %d:%d: Duplicate signed modifier\n", argv[args - 1], t->line, t->col);
+	// 					}
+	// 					else if((IdentifierCharacteristics & BIT_UNSIGNED))
+	// 					{
+	// 						if(CompStr(scope, PrevScope) != 1)
+	// 						{
+	// 							CpyStr(PrevScope, scope);
+	// 							printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 						}
+	// 						printf("%s: error: %d:%d: Ambiguous sign modifier\n", argv[args - 1], t->line, t->col);
+	// 					}
+	// 					else
+	// 					{
+	// 						IdentifierCharacteristics |= BIT_SIGNED;
+	// 					}
+	// 					break;
+	// 				}
+	// 				case MODIFIER_UNSIGNED:{
+	// 					if((IdentifierCharacteristics & BIT_UNSIGNED))
+	// 					{
+	// 						if(CompStr(scope, PrevScope) != 1)
+	// 						{
+	// 							CpyStr(PrevScope, scope);
+	// 							printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 						}
+	// 						printf("%s: error: %d:%d: Duplicate unsigned modifier\n", argv[args - 1], t->line, t->col);
+	// 					}
+	// 					else if((IdentifierCharacteristics & BIT_SIGNED))
+	// 					{
+	// 						if(CompStr(scope, PrevScope) != 1)
+	// 						{
+	// 							CpyStr(PrevScope, scope);
+	// 							printf("%s: In scope of '%s'\n", argv[args - 1], scope);
+	// 						}
+	// 						printf("%s: error: %d:%d: Ambiguous sign modifier\n", argv[args - 1], t->line, t->col);
+	// 					}
+	// 					else
+	// 					{
+	// 						IdentifierCharacteristics |= BIT_UNSIGNED;
+	// 					}
+	// 					break;
+	// 				}
+	// 			}
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_DATATYPE:{
+	// 			if(inProcess == 0)
+	// 			{
+	// 				inProcess = 1;
+	// 			}
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_IDENTIFIER:{
+	// 			if(AccessSpecifier == TOKENMASTER_NA)
+	// 			{
+	// 				AccessSpecifier = ACCESSSPECIFIER_PRIVATE;
+	// 			}
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_SPECIALCHAR:{
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_PREPROCESSOR:{
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_OPERATOR:{
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_SEMICOLON:{
+	// 			CpyStr(Identifier, "");
+	// 			inProcess = 0;
+	// 			ctype = CONSTRUCT_NA;
+ //    			AccessSpecifier = TOKENMASTER_NA;
+ //    			IdentifierType = TOKENMASTER_NA;
+ //    			IdentifierCharacteristics = 0;
+ //    			PointerLevel = 0;
+ //    			DataType = DATATYPE_OTHER;
+ //    			OtherDataType = NULL;
+ //    			IdentifierSize = 1;
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_CONTAINER:{
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_KEYWORD:{
+	// 			break;
+	// 		}
+	// 		case TOKENTYPE_CONSTANT:{
+	// 			break;
+	// 		}
+	// 		default:{
+	// 			break;
+	// 		}
+	// 	}
+	// 	head = head->next;
+	// }
+	TOKENLIST *mainhead = head;
+	printf("\n%s\n\n", fprogram() ? "goop: Compilation successful" : "goop: Compilation Terminated");
 	DestroyTokenList(head);
 	fclose(fp);
+	SYMBOL_TABLE *symtbl = NULL;
+	symtbl = CreateSymbolTable(symtbl, mainhead, os);
 	if(op)
 	{
 		fclose(op);
